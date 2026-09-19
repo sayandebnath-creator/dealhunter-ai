@@ -1,3 +1,7 @@
 # for running the application
 fastapi 
 uvicorn
+
+# adding actual ai agent
+langgraph 
+langchain-ollama
