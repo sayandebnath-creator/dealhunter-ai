@@ -1,0 +1,7 @@
+{
+  "preferred_brands": ["Lenovo", "ASUS"],
+  "preferred_ram": 16,
+  "prioritize_battery": true,
+  "prioritize_performance": true,
+  "avoid_gaming_laptops": true
+}

@@ -5,6 +5,12 @@ from langchain_ollama import ChatOllama
 
 
 DATA_FILE = Path(__file__).parent.parent / "data" / "products.json"
+PREFERENCES_FILE = Path(__file__).parent.parent / "data" / "preferences.json"
+
+
+def load_preferences():
+    with open(PREFERENCES_FILE, "r") as file:
+        return json.load(file)
 
 
 def load_products():
@@ -103,7 +109,7 @@ def compare_products(products):
     return comparison
 
 
-def recommend_products(user_request, products, comparisons):
+def recommend_products(user_request, products, comparisons, preferences):
 
     prompt = f"""
         You are an e-commerce shopping assistant.
@@ -116,6 +122,9 @@ def recommend_products(user_request, products, comparisons):
 
         Product comparison:
         {json.dumps(comparison, indent=2)}
+
+        User preferences:
+        {json.dumps(preferences, indent=2)}
 
         Recommend the most suitable products.
 
@@ -151,12 +160,17 @@ if __name__ == "__main__":
 
     print(f"\nFound {len(products)} products.")
 
+    preferences = load_preferences()
+    print("\nUser Preferences:")
+    print(json.dumps(preferences,indent=2))
+
     comparison = compare_products(products)
 
     recommendation = recommend_products(
         request,
         products,
-        comparison
+        comparison,
+        preferences
     )
 
     print("\n--- DealHunter Recommendation ---\n")
