@@ -21,27 +21,27 @@ llm = ChatOllama(
 def extract_requirements(user_request: str):
 
     prompt = f"""
-Extract the shopping requirements from this request.
+        Extract the shopping requirements from this request.
 
-User request:
-{user_request}
+        User request:
+        {user_request}
 
-Return ONLY JSON in exactly this format:
+        Return ONLY JSON in exactly this format:
 
-{{
-    "category": "laptop",
-    "max_price": 70000,
-    "min_ram": 16
-}}
+        {{
+            "category": "laptop",
+            "max_price": 70000,
+            "min_ram": 16
+        }}
 
-Rules:
-- Price is Indian Rupees.
-- "70k" means 70000.
-- If the user says "under 70000", max_price must be 70000.
-- Do not increase the user's budget.
-- If RAM is not mentioned, use null.
-- If price is not mentioned, use null.
-"""
+        Rules:
+        - Price is Indian Rupees.
+        - "70k" means 70000.
+        - If the user says "under 70000", max_price must be 70000.
+        - Do not increase the user's budget.
+        - If RAM is not mentioned, use null.
+        - If price is not mentioned, use null.
+        """
 
     response = llm.invoke(prompt)
 
@@ -85,32 +85,53 @@ def search_products(requirements):
 
     return results
 
+def compare_products(products):
+    comparison = []
 
-def recommend_products(user_request, products):
+    for product in products:
+        comparison.append({
+            "name": product["name"],
+            "price": product["price"],
+            "ram": product["ram"],
+            "storage": product["storage"],
+            "processor": product["processor"],
+            "battery_hours": product["battery_hours"],
+            "rating": product["rating"],
+            "reviews": product["reviews"],
+        })
+
+    return comparison
+
+
+def recommend_products(user_request, products, comparisons):
 
     prompt = f"""
-You are an e-commerce shopping assistant.
+        You are an e-commerce shopping assistant.
 
-User request:
-{user_request}
+        User request:
+        {user_request}
 
-Available products:
-{json.dumps(products, indent=2)}
+        Available products:
+        {json.dumps(products, indent=2)}
 
-Recommend the most suitable products.
+        Product comparison:
+        {json.dumps(comparison, indent=2)}
 
-Consider:
-- price
-- RAM
-- processor
-- battery life
-- rating
-- reviews
+        Recommend the most suitable products.
 
-Do not invent products or specifications.
+        Consider:
+        - price
+        - RAM
+        - processor
+        - storage
+        - battery life
+        - rating
+        - number of reviews
 
-Give a concise recommendation.
-"""
+        Do not invent products or specifications.
+
+        Explain briefly why the recommended products match the user's needs.
+        """
 
     response = llm.invoke(prompt)
 
@@ -119,7 +140,7 @@ Give a concise recommendation.
 
 if __name__ == "__main__":
 
-    request = input("What are you looking for? ")
+    request = input("What are you looking for? \n")
 
     requirements = extract_requirements(request)
 
@@ -130,9 +151,12 @@ if __name__ == "__main__":
 
     print(f"\nFound {len(products)} products.")
 
+    comparison = compare_products(products)
+
     recommendation = recommend_products(
         request,
-        products
+        products,
+        comparison
     )
 
     print("\n--- DealHunter Recommendation ---\n")
