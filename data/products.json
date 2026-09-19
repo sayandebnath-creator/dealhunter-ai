@@ -1,0 +1,67 @@
+[
+  {
+    "id": 1,
+    "name": "ASUS Vivobook 15",
+    "category": "laptop",
+    "brand": "ASUS",
+    "price": 64999,
+    "ram": 16,
+    "storage": 512,
+    "processor": "Intel Core i5",
+    "battery_hours": 8,
+    "rating": 4.3,
+    "reviews": 1842
+  },
+  {
+    "id": 2,
+    "name": "Lenovo IdeaPad Slim 5",
+    "category": "laptop",
+    "brand": "Lenovo",
+    "price": 67990,
+    "ram": 16,
+    "storage": 512,
+    "processor": "AMD Ryzen 7",
+    "battery_hours": 10,
+    "rating": 4.5,
+    "reviews": 2310
+  },
+  {
+    "id": 3,
+    "name": "HP Pavilion 14",
+    "category": "laptop",
+    "brand": "HP",
+    "price": 61990,
+    "ram": 16,
+    "storage": 512,
+    "processor": "Intel Core i5",
+    "battery_hours": 7,
+    "rating": 4.2,
+    "reviews": 1560
+  },
+  {
+    "id": 4,
+    "name": "Acer Aspire 5",
+    "category": "laptop",
+    "brand": "Acer",
+    "price": 58990,
+    "ram": 16,
+    "storage": 512,
+    "processor": "Intel Core i5",
+    "battery_hours": 8,
+    "rating": 4.1,
+    "reviews": 980
+  },
+  {
+    "id": 5,
+    "name": "MacBook Air M2",
+    "category": "laptop",
+    "brand": "Apple",
+    "price": 74990,
+    "ram": 16,
+    "storage": 256,
+    "processor": "Apple M2",
+    "battery_hours": 15,
+    "rating": 4.7,
+    "reviews": 3200
+  }
+]
