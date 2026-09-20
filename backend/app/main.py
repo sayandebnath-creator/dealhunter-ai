@@ -1,7 +1,10 @@
 import json
+import asyncio
 from pathlib import Path
 
 from langchain_ollama import ChatOllama
+from langchain.agents import create_agent
+from langchain_mcp_adapters.client import MultiServerMCPClient
 
 
 DATA_FILE = Path(__file__).parent.parent / "data" / "products.json"
@@ -217,64 +220,111 @@ def decide_next_action(user_request, products):
 
     return json.loads(text)
 
-if __name__ == "__main__":
+async def get_mcp_tools():
+    client = MultiServerMCPClient(
+        {
+            "dealhunter": {
+                "command": "python3",
+                "args": [
+                    str(
+                        Path(__file__).parent.parent.parent
+                        / "mcp_server"
+                        / "server.py"
+                    )
+                ],
+                "transport": "stdio",
+            }
+        }
+    )
 
-    request = input("What are you looking for? \n")
+    tools = await client.get_tools()
 
+    return tools
+
+
+async def run_agent(request):
+    tools = await get_mcp_tools()
+
+    search_tool = next(
+        tool for tool in tools
+        if tool.name == "search_products"
+    )
+
+    compare_tool = next(
+        tool for tool in tools
+        if tool.name == "compare_products"
+    )
+
+    # Step 1: Ask LLM to extract requirements
     requirements = extract_requirements(request)
 
     print("\nRequirements:")
     print(json.dumps(requirements, indent=2))
 
-    products = search_products(requirements)
+    # Step 2: Search through MCP
+    search_result = await search_tool.ainvoke({
+        "max_price": requirements["max_price"] or 0,
+        "min_ram": requirements["min_ram"] or 0,
+    })
 
-    print(f"\nFound {len(products)} products.")
+    products = json.loads(search_result[0]["text"])
 
-    # this is the decision layer
-    decision = decide_action(
-        request,
-        requirements,
-        products
-    )
+    print(f"\nMCP Search found {len(products)} products.")
 
-    print("\nAgent Decision:")
-    print(json.dumps(decision, indent=2))
-
-    preferences = load_preferences()
-    print("\nUser Preferences:")
-    print(json.dumps(preferences,indent=2))
-
-    # comparison = compare_products(products)
+    # Step 3: Compare when multiple products exist
     comparison = []
 
-    if decision["action"] == "compare":
+    if len(products) > 1:
 
-        comparison = compare_products(products)
+        product_ids = [
+            product["id"]
+            for product in products
+        ]
 
-        next_action = decide_next_action(
-            request,
-            comparison
-        )
+        comparison_result = await compare_tool.ainvoke({
+            "product_ids": product_ids
+        })
 
-        print("\nNext Agent Action:")
-        print(json.dumps(next_action, indent=2))
+        comparison = json.loads(comparison_result[0]["text"])
 
-        if next_action["action"] == "inspect":
+        print("\nMCP Comparison completed.")
 
-            # product_id = products[0]["id"]
-            product_id = next_action["product_id"]
+    # Step 4: Let LLM make the final recommendation
+    prompt = f"""
+        You are DealHunter, an e-commerce shopping assistant.
 
-            details = get_product_details(product_id)
+        User request:
+        {request}
 
-            print("\nInspected Product:")
-            print(json.dumps(details, indent=2))
+        Matching products:
+        {json.dumps(products, indent=2)}
 
-    recommendation = recommend_products(
-        request,
-        products,
-        comparison,
-        preferences
-    )
+        Comparison:
+        {json.dumps(comparison, indent=2)}
 
-    print("\n--- DealHunter Recommendation ---\n")
-    print(recommendation)
+        Recommend the most suitable laptop.
+
+        Consider:
+        - user's budget
+        - RAM
+        - processor performance
+        - battery life
+        - rating
+        - reviews
+
+        Never invent specifications.
+
+        Explain briefly why your recommendation fits the user's requirements.
+        """
+
+    response = llm.invoke(prompt)
+
+    return response.content
+if __name__ == "__main__":
+
+    request = input("What are you looking for?\n")
+
+    result = asyncio.run(run_agent(request))
+
+    print("\n--- DealHunter Agent ---\n")
+    print(result)
