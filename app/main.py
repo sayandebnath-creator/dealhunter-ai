@@ -109,7 +109,7 @@ def compare_products(products):
     return comparison
 
 
-def recommend_products(user_request, products, comparisons, preferences):
+def recommend_products(user_request, products, comparison, preferences):
 
     prompt = f"""
         You are an e-commerce shopping assistant.
