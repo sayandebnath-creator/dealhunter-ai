@@ -91,6 +91,15 @@ def search_products(requirements):
 
     return results
 
+def get_product_details(product_id):
+    products = load_products()
+
+    for product in products:
+        if product["id"] == product_id:
+            return product
+
+    return None
+
 def compare_products(products):
     comparison = []
 
@@ -165,6 +174,49 @@ def decide_action(user_request, requirements, products):
         "reason": f"{len(products)} products match the requirements."
     }
 
+def decide_next_action(user_request, products):
+
+    prompt = f"""
+        You are the decision component of a shopping agent.
+
+        User request:
+        {user_request}
+
+        Products found:
+        {json.dumps(products, indent=2)}
+
+        Decide whether the available information is enough.
+
+        Return ONLY JSON:
+
+        {{
+            "action": "recommend",
+            "product_id": null,
+            "reason": "..."
+        }}
+
+        Allowed actions:
+        - "recommend"
+        - "inspect"
+
+        If action is "inspect", product_id MUST be the ID
+        of the product that needs more information.
+
+        Use "inspect" only if important information is missing.
+        Otherwise use "recommend".
+        """
+
+    response = llm.invoke(prompt)
+
+    text = response.content.strip()
+
+    if text.startswith("```"):
+        text = text.replace("```json", "")
+        text = text.replace("```", "")
+        text = text.strip()
+
+    return json.loads(text)
+
 if __name__ == "__main__":
 
     request = input("What are you looking for? \n")
@@ -196,7 +248,26 @@ if __name__ == "__main__":
     comparison = []
 
     if decision["action"] == "compare":
+
         comparison = compare_products(products)
+
+        next_action = decide_next_action(
+            request,
+            comparison
+        )
+
+        print("\nNext Agent Action:")
+        print(json.dumps(next_action, indent=2))
+
+        if next_action["action"] == "inspect":
+
+            # product_id = products[0]["id"]
+            product_id = next_action["product_id"]
+
+            details = get_product_details(product_id)
+
+            print("\nInspected Product:")
+            print(json.dumps(details, indent=2))
 
     recommendation = recommend_products(
         request,
