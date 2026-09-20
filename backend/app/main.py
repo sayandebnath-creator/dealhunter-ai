@@ -148,11 +148,22 @@ def recommend_products(user_request, products, comparison, preferences):
         - battery life
         - rating
         - number of reviews
+        - user preferences
 
-        Do not invent products or specifications.
+        Important rules:
+        - All prices are in Indian Rupees (INR), not RMB.
+        - Treat the user's stated budget as a strict maximum budget.
+        - Never increase or reinterpret the user's budget.
+        - Do not claim a product is the only one within budget unless the data confirms it.
+        - Base every factual statement strictly on the provided product data.
+        - Do not invent products or specifications.
+        - Do not make performance claims that cannot be determined from the provided data.
+        - Do not claim one processor is faster or more powerful unless the provided data explicitly supports it.
+        - If multiple products match, explain the key differences.
+        - Keep the recommendation concise and practical.
 
-        Explain briefly why the recommended products match the user's needs.
-        """
+        Explain briefly why the recommended product(s) match the user's needs.
+    """
 
     response = llm.invoke(prompt)
 
@@ -290,36 +301,46 @@ async def run_agent(request):
         print("\nMCP Comparison completed.")
 
     # Step 4: Let LLM make the final recommendation
-    prompt = f"""
-        You are DealHunter, an e-commerce shopping assistant.
+    # prompt = f"""
+    #     You are DealHunter, an e-commerce shopping assistant.
 
-        User request:
-        {request}
+    #     User request:
+    #     {request}
 
-        Matching products:
-        {json.dumps(products, indent=2)}
+    #     Matching products:
+    #     {json.dumps(products, indent=2)}
 
-        Comparison:
-        {json.dumps(comparison, indent=2)}
+    #     Comparison:
+    #     {json.dumps(comparison, indent=2)}
 
-        Recommend the most suitable laptop.
+    #     Recommend the most suitable laptop.
 
-        Consider:
-        - user's budget
-        - RAM
-        - processor performance
-        - battery life
-        - rating
-        - reviews
+    #     Consider:
+    #     - user's budget
+    #     - RAM
+    #     - processor performance
+    #     - battery life
+    #     - rating
+    #     - reviews
 
-        Never invent specifications.
+    #     Never invent specifications.
 
-        Explain briefly why your recommendation fits the user's requirements.
-        """
+    #     Explain briefly why your recommendation fits the user's requirements.
+    #     """
 
-    response = llm.invoke(prompt)
+    # response = llm.invoke(prompt)
 
-    return response.content
+    # return response.content
+    preferences = load_preferences()
+
+    recommendation = recommend_products(
+        request,
+        products,
+        comparison,
+        preferences
+    )
+
+    return recommendation
 if __name__ == "__main__":
 
     request = input("What are you looking for?\n")
