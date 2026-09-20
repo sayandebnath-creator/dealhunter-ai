@@ -147,6 +147,24 @@ def recommend_products(user_request, products, comparison, preferences):
     return response.content
 
 
+def decide_action(user_request, requirements, products):
+    if len(products) == 0:
+        return {
+            "action": "no_results",
+            "reason": "No products match the requirements."
+        }
+
+    if len(products) == 1:
+        return {
+            "action": "recommend",
+            "reason": "Only one product matches the requirements."
+        }
+
+    return {
+        "action": "compare",
+        "reason": f"{len(products)} products match the requirements."
+    }
+
 if __name__ == "__main__":
 
     request = input("What are you looking for? \n")
@@ -160,11 +178,25 @@ if __name__ == "__main__":
 
     print(f"\nFound {len(products)} products.")
 
+    # this is the decision layer
+    decision = decide_action(
+        request,
+        requirements,
+        products
+    )
+
+    print("\nAgent Decision:")
+    print(json.dumps(decision, indent=2))
+
     preferences = load_preferences()
     print("\nUser Preferences:")
     print(json.dumps(preferences,indent=2))
 
-    comparison = compare_products(products)
+    # comparison = compare_products(products)
+    comparison = []
+
+    if decision["action"] == "compare":
+        comparison = compare_products(products)
 
     recommendation = recommend_products(
         request,
