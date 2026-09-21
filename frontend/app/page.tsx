@@ -33,7 +33,7 @@ type Message = {
 
 const starters = [
   { label: "Laptop under ₹70,000 for programming", hint: "budget · laptops" },
-  { label: "Best phone under ₹30,000", hint: "budget · phones" },
+  { label: "Laptop under ₹60,000 with 16GB RAM", hint: "budget · laptops" },
   { label: "Laptop with great battery life", hint: "priority · laptops" },
 ];
 
