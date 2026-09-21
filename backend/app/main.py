@@ -1,4 +1,5 @@
 import json
+import re
 import asyncio
 from pathlib import Path
 
@@ -255,85 +256,99 @@ def normalize_web_products(web_products):
 def extract_web_product_data(page):
     content = page.get("content", "")
     url = page.get("url", "")
+    title = page.get("title", "")
 
-    import re
+    # Ignore article pages for now
+    if "grokipedia.com" in url:
+        return []
 
     products = []
 
-    # Find product blocks around "Price, product page"
-    blocks = re.split(r"Price, product page", content)
+    # Flipkart product sections
+    chunks = re.split(r"Add to Compare", content, flags=re.IGNORECASE)
 
-    for block in blocks:
+    for chunk in chunks:
 
-        price_match = re.search(
-            r"₹\s?([\d,]+)\s+₹\s?[\d,]+",
-            block
-        )
-
-        if not price_match:
-            continue
-
-        price = int(price_match.group(1).replace(",", ""))
-
-        if price > 70000:
-            continue
-
-        # Look for Lenovo product names
+        # Product name + rating
         name_match = re.search(
-            r"(Lenovo[^₹]{20,250})",
-            block
+            r"^\s*(.+?)\s+"
+            r"(\d(?:\.\d)?)\s+([\d,]+)\s+Ratings\s*&\s*([\d,]+)\s+Reviews",
+            chunk,
+            re.IGNORECASE
         )
 
         if not name_match:
             continue
 
         name = name_match.group(1).strip()
+        rating = float(name_match.group(2))
+        reviews = int(name_match.group(4).replace(",", ""))
+
+        # Make sure this is actually a laptop
+        if not re.search(
+            r"laptop|chromebook|macbook|ideapad|thinkpad|pavilion|"
+            r"vivobook|aspire|inspiron|expertbook|galaxy book|"
+            r"modern|victus|tuf",
+            name,
+            re.IGNORECASE
+        ):
+            continue
 
         # RAM
         ram_match = re.search(
-            r"(\d+)\s*GB(?:\s+(?:DDR\d|LPDDR\dX?))?\s*(?:RAM|Memory)",
-            block,
+            r"(\d+)\s*GB\s*(?:DDR\d|LPDDR\dX?)?\s*RAM",
+            chunk,
             re.IGNORECASE
         )
-
         ram = int(ram_match.group(1)) if ram_match else None
 
         # Storage
         storage_match = re.search(
-            r"(\d+)\s*GB\s*(?:SSD|NVMe)",
-            block,
+            r"(\d+)\s*GB\s*(?:SSD|EMMC|eMMC)",
+            chunk,
             re.IGNORECASE
         )
+        storage = storage_match.group(1) if storage_match else None
 
-        storage = (
-            int(storage_match.group(1))
-            if storage_match
-            else None
+        # Processor
+        processor_match = re.search(
+            r"((?:Intel|AMD|Apple|MediaTek|Snapdragon)[^\\n]{0,100})",
+            chunk,
+            re.IGNORECASE
+        )
+        processor = processor_match.group(1).strip() if processor_match else None
+
+        # Find prices
+        price_matches = re.findall(
+            r"₹\s*([\d,]+)",
+            chunk
         )
 
-        # Rating
-        rating_match = re.search(
-            r"(\d\.\d)\s+out of 5 stars",
-            block
-        )
+        if not price_matches:
+            continue
 
-        rating = (
-            float(rating_match.group(1))
-            if rating_match
-            else None
-        )
+        prices = [
+            int(p.replace(",", ""))
+            for p in price_matches
+        ]
 
-        # Reviews
-        reviews_match = re.search(
-            r"\(([\d,]+)\)",
-            block
-        )
+        # Pick a realistic laptop price.
+        # Ignore tiny exchange/discount values.
+        valid_prices = [
+            p for p in prices
+            if 20000 <= p <= 200000
+        ]
 
-        reviews = (
-            int(reviews_match.group(1).replace(",", ""))
-            if reviews_match
-            else None
-        )
+        if not valid_prices:
+            continue
+
+        # Flipkart's first displayed product price is normally the
+        # actual current selling price.
+        price = valid_prices[0]
+
+        # Strict budget
+        if price > 70000:
+            continue
 
         products.append({
             "name": name,
@@ -341,11 +356,11 @@ def extract_web_product_data(page):
             "currency": "INR",
             "ram": ram,
             "storage": storage,
-            "processor": None,
+            "processor": processor,
             "rating": rating,
             "reviews": reviews,
             "url": url,
-            "source": page.get("title", "")
+            "source": title
         })
 
     return products
@@ -410,7 +425,7 @@ async def run_agent(request):
         "min_ram": requirements["min_ram"] or 0,
     })
 
-    web_query = request
+    web_query = f"{request} Amazon India Flipkart"
 
     web_result = await web_search_tool.ainvoke({
         "query": web_query
@@ -422,7 +437,7 @@ async def run_agent(request):
     # Fetch a few relevant web pages
     live_products = []
 
-    for item in web_products[:5]:
+    for item in web_products:
 
         url = item.get("url")
 
@@ -447,6 +462,7 @@ async def run_agent(request):
 
     for page in live_products:
         products = extract_web_product_data(page)
+        print(f"Parsed {len(products)} products from {page.get('url')}")
         structured_live_products.extend(products)
 
     print("\nStructured Live Products:")
