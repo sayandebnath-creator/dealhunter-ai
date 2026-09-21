@@ -231,6 +231,125 @@ def decide_next_action(user_request, products):
 
     return json.loads(text)
 
+def normalize_web_products(web_products):
+    products = []
+
+    for item in web_products:
+
+        name = item.get("name", "")
+        url = item.get("url", "")
+        snippet = item.get("snippet", "")
+
+        if not name or not url:
+            continue
+
+        products.append({
+            "name": name,
+            "url": url,
+            "description": snippet,
+            "source": url.split("/")[2]
+        })
+
+    return products
+
+def extract_web_product_data(page):
+    content = page.get("content", "")
+    url = page.get("url", "")
+
+    import re
+
+    products = []
+
+    # Find product blocks around "Price, product page"
+    blocks = re.split(r"Price, product page", content)
+
+    for block in blocks:
+
+        price_match = re.search(
+            r"₹\s?([\d,]+)\s+₹\s?[\d,]+",
+            block
+        )
+
+        if not price_match:
+            continue
+
+        price = int(price_match.group(1).replace(",", ""))
+
+        if price > 70000:
+            continue
+
+        # Look for Lenovo product names
+        name_match = re.search(
+            r"(Lenovo[^₹]{20,250})",
+            block
+        )
+
+        if not name_match:
+            continue
+
+        name = name_match.group(1).strip()
+
+        # RAM
+        ram_match = re.search(
+            r"(\d+)\s*GB(?:\s+(?:DDR\d|LPDDR\dX?))?\s*(?:RAM|Memory)",
+            block,
+            re.IGNORECASE
+        )
+
+        ram = int(ram_match.group(1)) if ram_match else None
+
+        # Storage
+        storage_match = re.search(
+            r"(\d+)\s*GB\s*(?:SSD|NVMe)",
+            block,
+            re.IGNORECASE
+        )
+
+        storage = (
+            int(storage_match.group(1))
+            if storage_match
+            else None
+        )
+
+        # Rating
+        rating_match = re.search(
+            r"(\d\.\d)\s+out of 5 stars",
+            block
+        )
+
+        rating = (
+            float(rating_match.group(1))
+            if rating_match
+            else None
+        )
+
+        # Reviews
+        reviews_match = re.search(
+            r"\(([\d,]+)\)",
+            block
+        )
+
+        reviews = (
+            int(reviews_match.group(1).replace(",", ""))
+            if reviews_match
+            else None
+        )
+
+        products.append({
+            "name": name,
+            "price": price,
+            "currency": "INR",
+            "ram": ram,
+            "storage": storage,
+            "processor": None,
+            "rating": rating,
+            "reviews": reviews,
+            "url": url,
+            "source": page.get("title", "")
+        })
+
+    return products
+
 async def get_mcp_tools():
     client = MultiServerMCPClient(
         {
@@ -255,6 +374,9 @@ async def get_mcp_tools():
 
 async def run_agent(request):
     tools = await get_mcp_tools()
+    # print("\nAvailable MCP tools:")
+    # for tool in tools:
+    #     print("-", tool.name)
 
     search_tool = next(
         tool for tool in tools
@@ -264,6 +386,16 @@ async def run_agent(request):
     compare_tool = next(
         tool for tool in tools
         if tool.name == "compare_products"
+    )
+
+    web_search_tool = next(
+        tool for tool in tools
+        if tool.name == "search_web_products"
+    )
+
+    fetch_page_tool = next(
+        tool for tool in tools
+        if tool.name == "fetch_product_page"
     )
 
     # Step 1: Ask LLM to extract requirements
@@ -278,59 +410,87 @@ async def run_agent(request):
         "min_ram": requirements["min_ram"] or 0,
     })
 
-    products = json.loads(search_result[0]["text"])
+    web_query = request
+
+    web_result = await web_search_tool.ainvoke({
+        "query": web_query
+    })
+
+    web_products = json.loads(web_result[0]["text"])
+
+    # live_products = normalize_web_products(web_products)
+    # Fetch a few relevant web pages
+    live_products = []
+
+    for item in web_products[:5]:
+
+        url = item.get("url")
+
+        if not url:
+            continue
+
+        page_result = await fetch_page_tool.ainvoke({
+            "url": url
+        })
+
+        page_data = json.loads(page_result[0]["text"])
+
+        if "error" in page_data:
+            continue
+
+        live_products.append(page_data)
+
+    # print("\nFetched Live Product Pages:")
+    # print(json.dumps(live_products, indent=2))
+
+    structured_live_products = []
+
+    for page in live_products:
+        products = extract_web_product_data(page)
+        structured_live_products.extend(products)
+
+    print("\nStructured Live Products:")
+    print(json.dumps(structured_live_products, indent=2))
+
+    # Keep only products that satisfy the user's requirements
+    filtered_live_products = []
+
+    for product in structured_live_products:
+
+        price = product.get("price")
+        ram = product.get("ram")
+
+        if requirements["max_price"] is not None:
+            if price is None or price > requirements["max_price"]:
+                continue
+
+        if requirements["min_ram"] is not None:
+            if ram is None or ram < requirements["min_ram"]:
+                continue
+
+        filtered_live_products.append(product)
+
+    print("\nFiltered Live Products:")
+    print(json.dumps(filtered_live_products, indent=2))
+
+    print("\nNormalized Live Products:")
+    print(json.dumps(live_products, indent=2))
+
+    print(f"\nLive web search found {len(web_products)} results.")
+
+    # print("\nLive Products:")
+    # print(json.dumps(web_products, indent=2))
+
+    products = filtered_live_products
 
     print(f"\nMCP Search found {len(products)} products.")
 
-    # Step 3: Compare when multiple products exist
-    comparison = []
+    if not products:
+        return "I couldn't find any verified products matching your requirements."
 
-    if len(products) > 1:
+    comparison = products
 
-        product_ids = [
-            product["id"]
-            for product in products
-        ]
-
-        comparison_result = await compare_tool.ainvoke({
-            "product_ids": product_ids
-        })
-
-        comparison = json.loads(comparison_result[0]["text"])
-
-        print("\nMCP Comparison completed.")
-
-    # Step 4: Let LLM make the final recommendation
-    # prompt = f"""
-    #     You are DealHunter, an e-commerce shopping assistant.
-
-    #     User request:
-    #     {request}
-
-    #     Matching products:
-    #     {json.dumps(products, indent=2)}
-
-    #     Comparison:
-    #     {json.dumps(comparison, indent=2)}
-
-    #     Recommend the most suitable laptop.
-
-    #     Consider:
-    #     - user's budget
-    #     - RAM
-    #     - processor performance
-    #     - battery life
-    #     - rating
-    #     - reviews
-
-    #     Never invent specifications.
-
-    #     Explain briefly why your recommendation fits the user's requirements.
-    #     """
-
-    # response = llm.invoke(prompt)
-
-    # return response.content
+    print("\nLive Product Comparison ready.")
     preferences = load_preferences()
 
     recommendation = recommend_products(

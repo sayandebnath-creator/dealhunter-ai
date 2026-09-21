@@ -10,3 +10,10 @@ langchain
 # mcp
 mcp
 langchain-mcp-adapters
+
+# web search dependency(find relevant eb pages/products)
+ddgs
+
+# fetch web pages and parse/clean html
+httpx 
+beautifulsoup4
