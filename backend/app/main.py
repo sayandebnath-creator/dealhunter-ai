@@ -41,7 +41,9 @@ def extract_requirements(user_request: str):
         {{
             "category": "laptop",
             "max_price": 70000,
-            "min_ram": 16
+            "min_ram": 16,
+            "prioritize_battery": false,
+            "prioritize_performance": false
         }}
 
         Rules:
@@ -51,6 +53,15 @@ def extract_requirements(user_request: str):
         - Do not increase the user's budget.
         - If RAM is not mentioned, use null.
         - If price is not mentioned, use null.
+        - If the user asks for best, great, longest, or long battery life,
+        set prioritize_battery to true.
+
+        - If the user asks for best performance, powerful performance,
+        programming performance, or similar,
+        set prioritize_performance to true.
+
+        - These are preferences, NOT hard filters.
+        - Set both to false when the user does not express either preference.
         """
 
     response = llm.invoke(prompt)
@@ -122,7 +133,7 @@ def compare_products(products):
     return comparison
 
 
-def recommend_products(user_request, products, comparison, preferences):
+def recommend_products(user_request, products, comparison, preferences, requirements):
 
     prompt = f"""
         You are an e-commerce shopping assistant.
@@ -138,6 +149,9 @@ def recommend_products(user_request, products, comparison, preferences):
 
         User preferences:
         {json.dumps(preferences, indent=2)}
+
+        User preferences extracted from the request:
+        {json.dumps(requirements, indent=2)}
 
         Recommend the most suitable products.
 
@@ -162,6 +176,17 @@ def recommend_products(user_request, products, comparison, preferences):
         - Do not claim one processor is faster or more powerful unless the provided data explicitly supports it.
         - If multiple products match, explain the key differences.
         - Keep the recommendation concise and practical.
+        If prioritize_battery is true:
+        - Prefer products with higher verified battery life.
+
+        If prioritize_performance is true:
+        - Prefer products with stronger verified performance-related specifications.
+
+        Do not invent battery life or performance information.
+        Only use values present in the supplied product data.
+        - If the user does not explicitly mention a price or budget,
+        max_price MUST be null.
+        - Never assume ₹70,000 or any other default budget.
 
         Explain briefly why the recommended product(s) match the user's needs.
     """
@@ -254,25 +279,292 @@ def normalize_web_products(web_products):
     return products
 
 def extract_web_product_data(page):
+    import re
+
     content = page.get("content", "")
     url = page.get("url", "")
     title = page.get("title", "")
 
-    # Ignore article pages for now
-    if "grokipedia.com" in url:
-        return []
-
     products = []
 
-    # Flipkart product sections
-    chunks = re.split(r"Add to Compare", content, flags=re.IGNORECASE)
+    # ============================================================
+    # AMAZON
+    # ============================================================
+
+    if "amazon." in url.lower():
+
+        # Amazon product listings follow this pattern:
+        #
+        # Product Name
+        # 4.1 4.1 out of 5 stars (100)
+        # Price, product page ₹61,990
+        #
+        # Split around "Price, product page" so each section
+        # represents one product.
+
+        sections = content.split("Price, product page")
+
+        for section in sections:
+
+            # Product name + rating
+            product_match = re.search(
+                r"(?P<name>"
+                r"(?:Amazon's Choice for .*?\s+)?"
+                r"(?:Acer|ASUS|Lenovo|HP|Dell|Apple|MSI|"
+                r"Samsung|Microsoft|Primebook|Huawei|LG)"
+                r".*?)"
+                r"\s+"
+                r"(?P<rating>\d(?:\.\d)?)"
+                r"\s+"
+                r"\d(?:\.\d)?\s+out of 5 stars"
+                r"(?:\s+\((?P<reviews>[\d,]+)\))?",
+                section,
+                re.IGNORECASE
+            )
+
+            if not product_match:
+                continue
+
+            name = product_match.group("name").strip()
+
+            # Remove Amazon promotional text
+            name = re.sub(
+                r"^Amazon's Choice for .*?\s+",
+                "",
+                name,
+                flags=re.IGNORECASE
+            )
+
+            # Price
+            price_match = re.search(
+                r"₹\s*([\d,]+)",
+                section.split("Price, product page", 1)[-1]
+            )
+
+            if not price_match:
+                continue
+
+            price = int(
+                price_match.group(1).replace(",", "")
+            )
+
+            # Ignore clearly invalid prices
+            if price < 5000 or price > 500000:
+                continue
+
+            # RAM
+            ram_match = re.search(
+                r"(\d+)\s*GB(?:\s+(?:DDR\d|LPDDR\dX?))?"
+                r"\s*(?:RAM|Memory|Unified Memory)",
+                name,
+                re.IGNORECASE
+            )
+
+            ram = (
+                int(ram_match.group(1))
+                if ram_match
+                else None
+            )
+
+            # Storage
+            storage_match = re.search(
+                r"(\d+)\s*(?:GB|TB)"
+                r"\s*(?:SSD|Storage|UFS)",
+                name,
+                re.IGNORECASE
+            )
+
+            storage = (
+                storage_match.group(0)
+                if storage_match
+                else None
+            )
+
+            # Processor
+            processor_match = re.search(
+                r"((?:Intel|AMD|Apple|Qualcomm|Snapdragon|"
+                r"MediaTek|Ryzen|Core|M\d)[^|,()]*)",
+                name,
+                re.IGNORECASE
+            )
+
+            processor = (
+                processor_match.group(1).strip()
+                if processor_match
+                else None
+            )
+
+            # Battery information
+            battery_match = re.search(
+                r"(\d+(?:\.\d+)?)\s*(?:hrs?|hours?)"
+                r"(?:\s+Battery)?",
+                name,
+                re.IGNORECASE
+            )
+
+            battery_hours = (
+                float(battery_match.group(1))
+                if battery_match
+                else None
+            )
+
+            # Qualitative battery information
+            battery_text = None
+
+            if re.search(
+                r"Multi-Day Battery",
+                name,
+                re.IGNORECASE
+            ):
+                battery_text = "Multi-Day Battery"
+
+            elif re.search(
+                r"Long Battery Life",
+                name,
+                re.IGNORECASE
+            ):
+                battery_text = "Long Battery Life"
+
+            products.append({
+                "name": name,
+                "price": price,
+                "currency": "INR",
+                "ram": ram,
+                "storage": storage,
+                "processor": processor,
+                "battery_hours": battery_hours,
+                "battery_text": battery_text,
+                "rating": float(product_match.group("rating")),
+                "reviews": (
+                    int(
+                        product_match.group("reviews")
+                        .replace(",", "")
+                    )
+                    if product_match.group("reviews")
+                    else None
+                ),
+                "url": url,
+                "source": title
+            })
+
+        return products
+
+    # ============================================================
+    # FLIPKART
+    # ============================================================
+
+    chunks = re.split(
+        r"(?=Add to Compare)",
+        content
+    )
 
     for chunk in chunks:
 
-        # Product name + rating
+        if not re.search(
+            r"(Laptop|Chromebook|MacBook|IdeaPad|ThinkPad|"
+            r"Pavilion|Vivobook|VivoBook|Aspire|Inspiron|"
+            r"ExpertBook|Galaxy Book|Modern \d+|Victus|TUF)",
+            chunk,
+            re.IGNORECASE
+        ):
+            continue
+
+        prices = re.findall(
+            r"₹\s*([\d,]+)",
+            chunk
+        )
+
+        if not prices:
+            continue
+
+        price = None
+
+        for value in prices:
+            candidate = int(
+                value.replace(",", "")
+            )
+
+            if 10000 <= candidate <= 200000:
+                price = candidate
+
+        if price is None or price > 70000:
+            continue
+
+        # RAM
+        ram_match = re.search(
+            r"(\d+)\s*GB\s*"
+            r"(?:DDR\d|LPDDR\dX?)?\s*RAM",
+            chunk,
+            re.IGNORECASE
+        )
+
+        ram = (
+            int(ram_match.group(1))
+            if ram_match
+            else None
+        )
+
+        # Storage
+        storage_match = re.search(
+            r"(\d+)\s*GB\s*(?:SSD|EMMC|eMMC)",
+            chunk,
+            re.IGNORECASE
+        )
+
+        storage = (
+            storage_match.group(1)
+            if storage_match
+            else None
+        )
+
+        # Processor
+        processor_match = re.search(
+            r"((?:Intel|AMD|Apple|MediaTek|Snapdragon)"
+            r"[^()]{0,100}"
+            r"(?:Processor|Ryzen|Core|Snapdragon|M\d)[^()]*)",
+            chunk,
+            re.IGNORECASE
+        )
+
+        processor = (
+            processor_match.group(1).strip()
+            if processor_match
+            else None
+        )
+
+        # Rating
+        rating_match = re.search(
+            r"(\d(?:\.\d)?)\s+[\d,]+\s+Ratings",
+            chunk,
+            re.IGNORECASE
+        )
+
+        rating = (
+            float(rating_match.group(1))
+            if rating_match
+            else None
+        )
+
+        # Reviews
+        reviews_match = re.search(
+            r"Ratings\s*&\s*([\d,]+)\s+Reviews",
+            chunk,
+            re.IGNORECASE
+        )
+
+        reviews = (
+            int(
+                reviews_match.group(1)
+                .replace(",", "")
+            )
+            if reviews_match
+            else None
+        )
+
+        # Product name
         name_match = re.search(
-            r"^\s*(.+?)\s+"
-            r"(\d(?:\.\d)?)\s+([\d,]+)\s+Ratings\s*&\s*([\d,]+)\s+Reviews",
+            r"Add to Compare\s+(.+?)"
+            r"\s+\d(?:\.\d)?\s+[\d,]+\s+Ratings",
             chunk,
             re.IGNORECASE
         )
@@ -281,74 +573,6 @@ def extract_web_product_data(page):
             continue
 
         name = name_match.group(1).strip()
-        rating = float(name_match.group(2))
-        reviews = int(name_match.group(4).replace(",", ""))
-
-        # Make sure this is actually a laptop
-        if not re.search(
-            r"laptop|chromebook|macbook|ideapad|thinkpad|pavilion|"
-            r"vivobook|aspire|inspiron|expertbook|galaxy book|"
-            r"modern|victus|tuf",
-            name,
-            re.IGNORECASE
-        ):
-            continue
-
-        # RAM
-        ram_match = re.search(
-            r"(\d+)\s*GB\s*(?:DDR\d|LPDDR\dX?)?\s*RAM",
-            chunk,
-            re.IGNORECASE
-        )
-        ram = int(ram_match.group(1)) if ram_match else None
-
-        # Storage
-        storage_match = re.search(
-            r"(\d+)\s*GB\s*(?:SSD|EMMC|eMMC)",
-            chunk,
-            re.IGNORECASE
-        )
-        storage = storage_match.group(1) if storage_match else None
-
-        # Processor
-        processor_match = re.search(
-            r"((?:Intel|AMD|Apple|MediaTek|Snapdragon)[^\\n]{0,100})",
-            chunk,
-            re.IGNORECASE
-        )
-        processor = processor_match.group(1).strip() if processor_match else None
-
-        # Find prices
-        price_matches = re.findall(
-            r"₹\s*([\d,]+)",
-            chunk
-        )
-
-        if not price_matches:
-            continue
-
-        prices = [
-            int(p.replace(",", ""))
-            for p in price_matches
-        ]
-
-        # Pick a realistic laptop price.
-        # Ignore tiny exchange/discount values.
-        valid_prices = [
-            p for p in prices
-            if 20000 <= p <= 200000
-        ]
-
-        if not valid_prices:
-            continue
-
-        # Flipkart's first displayed product price is normally the
-        # actual current selling price.
-        price = valid_prices[0]
-
-        # Strict budget
-        if price > 70000:
-            continue
 
         products.append({
             "name": name,
@@ -357,6 +581,8 @@ def extract_web_product_data(page):
             "ram": ram,
             "storage": storage,
             "processor": processor,
+            "battery_hours": None,
+            "battery_text": None,
             "rating": rating,
             "reviews": reviews,
             "url": url,
@@ -513,7 +739,8 @@ async def run_agent(request):
         request,
         products,
         comparison,
-        preferences
+        preferences,
+        requirements
     )
 
     return recommendation
