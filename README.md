@@ -4,6 +4,8 @@ DealHunter AI is an agentic e-commerce assistant that understands natural-langua
 
 The project combines **LLMs, MCP (Model Context Protocol), FastAPI, and Next.js** to demonstrate a practical agentic AI workflow.
 
+![DealHunter AI Chat](./ss.png)
+
 ---
 
 ## Overview
